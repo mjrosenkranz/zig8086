@@ -13,6 +13,28 @@ const Dir = enum(u1) {
     dest = 1,
 };
 
+const Reg = enum(u4) {
+    // 8bit
+    al,
+    cl,
+    dl,
+    bl,
+    ah,
+    ch,
+    dh,
+    bh,
+
+    // 16bit
+    ax,
+    cx,
+    dx,
+    bx,
+    sp,
+    bp,
+    si,
+    di,
+};
+
 const Instr = packed struct {
     // byte 1
     // does this instruction operate on words?
@@ -28,16 +50,23 @@ const Instr = packed struct {
     reg: u3,
     mode: Mode,
 
-    //    pub fn from_bytes(bytes: [2]u8) Instr {
-    //        return Instr{
-    //            .opcode = @truncate(bytes[0] >> 2),
-    //            .dir = @as(bytes[0], bool),
-    //            .word = @as(bytes[0] >> 1, bool),
-    //            .mode = @truncate(bytes[2] >> 6),
-    //            .reg = @truncate(bytes[2] >> 3),
-    //            .r_m = @truncate(bytes[2]),
-    //        };
-    //    }
+    fn as_reg(self: Instr, reg: u3) Reg {
+        var val: u4 = reg;
+        if (self.word) {
+            val += 8;
+        }
+
+        return @enumFromInt(val);
+    }
+
+    /// returns the regist in the reg field
+    pub fn get_reg(self: Instr) Reg {
+        return self.as_reg(self.reg);
+    }
+
+    pub fn r_m_as_reg(self: Instr) Reg {
+        return self.as_reg(self.r_m);
+    }
 };
 
 export fn decode_instr(inst: u8) i32 {
@@ -64,9 +93,11 @@ test "inst bitcast" {
 
     // bx is source
     try expect(inst.reg == 0b011);
+    try expect(inst.get_reg() == Reg.bx);
 
     // cx is dest
     try expect(inst.r_m == 0b001);
+    try expect(inst.r_m_as_reg() == Reg.cx);
 }
 
 // test "inst new" {
