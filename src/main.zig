@@ -50,6 +50,10 @@ const Instr = packed struct {
     reg: u3,
     mode: Mode,
 
+    pub fn new(bytes: [2]u8) Instr {
+        return @bitCast(bytes);
+    }
+
     fn as_reg(self: Instr, reg: u3) Reg {
         var val: u4 = reg;
         if (self.word) {
@@ -78,7 +82,7 @@ export fn decode_instr(inst: u8) i32 {
 
 test "inst bitcast" {
     const input = [_]u8{ 0x89, 0xd9 };
-    const inst: Instr = @bitCast(input);
+    const inst = Instr.new(input);
 
     try expect(inst.opcode == 0b100010);
     // source in reg
