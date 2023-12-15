@@ -31,8 +31,10 @@ pub fn main() !void {
     _ = args.skip();
     const input_path = args.next() orelse {
         std.log.err("zig8086 needs an input file :(", .{});
-        return error.NoInputFile;
+        return;
     };
+
+    const output_path = args.next() orelse "output.asm";
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
@@ -45,7 +47,7 @@ pub fn main() !void {
     defer alloc.free(input);
     _ = try input_file.readAll(input);
 
-    const output_file = try std.fs.cwd().createFile("output.asm", .{ .read = true });
+    const output_file = try std.fs.cwd().createFile(output_path, .{ .read = true });
     defer output_file.close();
 
     try decompile(input, alloc, output_file.writer());
