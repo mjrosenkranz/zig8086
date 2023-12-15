@@ -19,6 +19,54 @@ const Dir = enum(u1) {
     dest = 1,
 };
 
+const RegMem = union(enum) {
+    // mod = 0b11
+    Reg: Reg,
+
+    // mod = 0b00
+    RegPlusReg: struct {
+        rega: Reg,
+        regb: Reg,
+    },
+    RegAddress: struct {
+        // should only be SI or DI
+        reg: Reg,
+    },
+
+    DirectAddress: struct {
+        addr: u16,
+    },
+
+    // mod = 0b01
+    RegPlus8: struct {
+        reg: Reg,
+        val: u8,
+    },
+    RegPlusRegPlus8: struct {
+        rega: Reg,
+        regb: Reg,
+        val: u8,
+    },
+
+    // mod = 0b10
+    RegPlus16: struct {
+        reg: Reg,
+        val: u16,
+    },
+    RegPlusRegPlus16: struct {
+        rega: Reg,
+        regb: Reg,
+        val: u16,
+    },
+
+    pub fn to_string(self: RegMem, alloc: std.mem.Allocator) ![]u8 {
+        return switch (self) {
+            .Reg => |reg| std.fmt.allocPrint(alloc, "{s}", .{reg.to_string()}),
+            else => @panic("unsupported regmem type"),
+        };
+    }
+};
+
 const Reg = enum(u4) {
     // 8bit
     al,
@@ -62,56 +110,61 @@ const Reg = enum(u4) {
     }
 };
 
-const Instr = packed struct {
+const Instr = struct {
     // byte 1
-    // does this instruction operate on words?
-    word: bool,
+    // TODO: make an enum for opcodes
+    opcode: u6,
     // direction:
     // if 0, source is REG
     // if 1, dest is REG
     dir: Dir,
-    opcode: u6,
+    // does this instruction operate on words?
+    word: bool,
 
     // byte 2
-    r_m: u3,
-    reg: u3,
     mode: Mode,
+    reg: Reg,
+    regmem: RegMem,
 
     pub fn new(bytes: []const u8) Instr {
-        return @bitCast(bytes[0..2].*);
-    }
+        const word: bool = (bytes[0] & 0x01) != 0;
+        const dir: Dir = @enumFromInt(bytes[0] >> 1);
+        const opcode: u6 = @truncate(bytes[0] >> 2);
 
-    fn as_reg(self: Instr, reg: u3) Reg {
-        var val: u4 = reg;
-        if (self.word) {
-            val += 8;
-        }
+        const mode: Mode = @enumFromInt(bytes[1] >> 6 & 0x07);
+        const reg_val: u3 = @truncate(bytes[1] >> 3);
+        const reg: Reg = if (word)
+            @enumFromInt(@as(u8, reg_val) + 8)
+        else
+            @enumFromInt(reg_val);
 
-        return @enumFromInt(val);
-    }
+        const reg_mem_val: u3 = @truncate(bytes[1]);
+        const reg_mem_reg: Reg = if (word)
+            @enumFromInt(@as(u8, reg_mem_val) + 8)
+        else
+            @enumFromInt(reg_mem_val);
 
-    /// returns the regist in the reg field
-    pub fn get_reg(self: Instr) Reg {
-        return self.as_reg(self.reg);
-    }
+        const regmem = RegMem{
+            .Reg = reg_mem_reg,
+        };
 
-    pub fn r_m_as_reg(self: Instr) Reg {
-        return self.as_reg(self.r_m);
+        return Instr{
+            .word = word,
+            .dir = dir,
+            .opcode = opcode,
+            .mode = mode,
+            .reg = reg,
+            .regmem = regmem,
+        };
     }
 
     pub fn to_string(self: Instr, alloc: std.mem.Allocator) ![]u8 {
-        const src = self.get_reg().to_string();
-        const dest = self.r_m_as_reg().to_string();
+        const src = self.reg.to_string();
+        const dest = try self.regmem.to_string(alloc);
+        defer alloc.free(dest);
         return std.fmt.allocPrint(alloc, "mov {s}, {s}", .{ dest, src });
     }
 };
-
-export fn decode_instr(inst: u8) i32 {
-    return switch (inst & 0xfc) {
-        0b0 => 4,
-        else => 0,
-    };
-}
 
 test "inst word" {
     const input = [_]u8{ 0x89, 0xd9 };
@@ -129,12 +182,10 @@ test "inst word" {
     try expect(inst.mode == Mode.reg);
 
     // bx is source
-    try expect(inst.reg == 0b011);
-    try expect(inst.get_reg() == Reg.bx);
+    try expect(inst.reg == Reg.bx);
 
     // cx is dest
-    try expect(inst.r_m == 0b001);
-    try expect(inst.r_m_as_reg() == Reg.cx);
+    try expect(inst.regmem.Reg == Reg.cx);
 }
 
 test "inst high" {
@@ -143,34 +194,20 @@ test "inst high" {
 
     try expect(inst.opcode == 0b100010);
     // source in reg
-    try expect(@intFromEnum(inst.dir) == 0);
     try expect(inst.dir == Dir.source);
     // 16 bits
     try expect(inst.word == false);
 
     // reg to reg
-    try expect(@intFromEnum(inst.mode) == 0b11);
     try expect(inst.mode == Mode.reg);
 
     // ah is source
-    // try expect(inst.reg == 0b011);
-    try expect(inst.get_reg() == Reg.ah);
+    try expect(inst.reg == Reg.ah);
 
     // ch is dest
-    // try expect(inst.r_m == 0b001);
-    try expect(inst.r_m_as_reg() == Reg.ch);
+    try expect(inst.regmem.Reg == Reg.ch);
 
     const expected = "mov ch, ah";
-    const actual = try inst.to_string(std.testing.allocator);
-    defer std.testing.allocator.free(actual);
-    try expectEqualSlices(u8, expected, actual);
-}
-
-test "to string" {
-    // const expected = prelude ++ "mov cx, bx";
-    const expected = "mov cx, bx";
-    const input = [_]u8{ 0x89, 0xd9 };
-    const inst = Instr.new(&input);
     const actual = try inst.to_string(std.testing.allocator);
     defer std.testing.allocator.free(actual);
     try expectEqualSlices(u8, expected, actual);
@@ -212,16 +249,3 @@ test "complex" {
         try expectEqualSlices(u8, expected[i], actual);
     }
 }
-
-// test "inst new" {
-//     const input = [_]u8{ 0x89, 0xd9 };
-//     const inst = Instr.from_bytes(input);
-//
-//     try expect(inst.opcode == 0b100010);
-//     try expect(inst.dir == false); // source in reg
-//     try expect(inst.word == true); // 16 bits
-//
-//     try expect(inst.mode == 0b11); // bx is source
-//     try expect(inst.reg == 0b011); // bx is source
-//     try expect(inst.r_m == 0b001); // cx is dest
-// }
