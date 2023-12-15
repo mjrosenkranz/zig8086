@@ -26,10 +26,15 @@ pub fn decompile(
     }
 }
 
+pub fn usage() void {
+    std.debug.print("usage: zig8086 INPUT OUTPUT\n\n", .{});
+}
+
 pub fn main() !void {
     var args = std.process.args();
     _ = args.skip();
     const input_path = args.next() orelse {
+        usage();
         std.log.err("zig8086 needs an input file :(", .{});
         return;
     };
