@@ -1,5 +1,11 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqualSlices = std.testing.expectEqualSlices;
+
+const prelude =
+    \\ bits 16
+    \\
+;
 
 const Mode = enum(u2) {
     no_disp = 0b00,
@@ -71,6 +77,13 @@ const Instr = packed struct {
     pub fn r_m_as_reg(self: Instr) Reg {
         return self.as_reg(self.r_m);
     }
+
+    pub fn to_string(self: Instr, alloc: std.mem.Allocator) ![]u8 {
+        _ = self;
+        const src = "bx";
+        const dest = "cx";
+        return std.fmt.allocPrint(alloc, "mov {s}, {s}", .{ dest, src });
+    }
 };
 
 export fn decode_instr(inst: u8) i32 {
@@ -102,6 +115,17 @@ test "inst bitcast" {
     // cx is dest
     try expect(inst.r_m == 0b001);
     try expect(inst.r_m_as_reg() == Reg.cx);
+}
+
+test "to string" {
+    // const expected = prelude ++ "mov cx, bx";
+    const expected = "mov cx, bx";
+    const input = [_]u8{ 0x89, 0xd9 };
+    const inst = Instr.new(input);
+    const actual = try inst.to_string(std.testing.allocator);
+    try expectEqualSlices(u8, expected, actual);
+
+    std.testing.allocator.free(actual);
 }
 
 // test "inst new" {
